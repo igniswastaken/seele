@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,17 +14,19 @@ import (
 
 	"github.com/zerothy/seele/model"
 	"github.com/zerothy/seele/service"
+	"github.com/zerothy/seele/sql"
 )
 
 const gracefulShutdownTimeout = 5 * time.Second
 
 type Server struct {
-	store *service.Store
-	ring  *service.HashRing
+	store  *service.Store
+	ring   *service.HashRing
+	engine *sql.Engine
 }
 
 func NewServer(store *service.Store, ring *service.HashRing) *Server {
-	return &Server{store: store, ring: ring}
+	return &Server{store: store, ring: ring, engine: sql.NewEngine(store)}
 }
 
 func (server *Server) HandleGet(w http.ResponseWriter, r *http.Request) {
@@ -127,6 +130,43 @@ func (server *Server) HandleSyncMerkle(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (server *Server) HandleQuery(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	buf := new(strings.Builder)
+	_, err := io.Copy(buf, r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	query := buf.String()
+
+	if query == "" {
+		http.Error(w, "Empty query", http.StatusBadRequest)
+		return
+	}
+
+	result, err := server.engine.Execute(query)
+
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"result":  result,
+	}); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+	}
+}
+
 func StartServer(port string, dataDir string, joinAddr string) error {
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		return err
@@ -193,6 +233,7 @@ func StartServer(port string, dataDir string, joinAddr string) error {
 	mux.HandleFunc("/set", server.HandleSet)
 	mux.HandleFunc("/delete", server.HandleDelete)
 	mux.HandleFunc("/keys", server.HandleKeys)
+	mux.HandleFunc("/query", server.HandleQuery)
 	mux.HandleFunc("/members", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(p2p.Members()); err != nil {

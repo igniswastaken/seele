@@ -162,6 +162,26 @@ func (l *LSMTree) Delete(key string) error {
 	return l.Put(key, "__deleted__")
 }
 
+func (l *LSMTree) Close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if err := l.wal.Close(); err != nil {
+		fmt.Println("Error closing WAL:", err)
+	}
+
+	l.ssTableMu.Lock()
+	defer l.ssTableMu.Unlock()
+
+	for _, table := range l.ssTable {
+		if err := table.Close(); err != nil {
+			fmt.Println("Error closing SSTable:", err)
+		}
+	}
+
+	return nil
+}
+
 func (l *LSMTree) Keys() []string {
 	l.mu.RLock()
 	keyMap := make(map[string]bool)

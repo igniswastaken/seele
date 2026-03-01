@@ -54,6 +54,10 @@ func (s *Store) Keys() []string {
 	return s.engine.Keys()
 }
 
+func (s *Store) Close() error {
+	return s.engine.Close()
+}
+
 func (s *Store) markDirty() {
 	s.merkleLock.Lock()
 	s.isDirty = true
