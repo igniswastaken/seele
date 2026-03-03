@@ -1,3 +1,84 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/forms';
 @plugin '@tailwindcss/typography';
+
+/* ── Dark theme (default) ── */
+:root {
+    --bg-app: #0a0b0f;
+    --bg-surface: #0f1117;
+    --bg-surface2: #12151f;
+    --bg-surface3: #131825;
+    --bg-hover: #1a1f2e;
+    --border: #1e2130;
+    --border-subtle: #141720;
+
+    --text-primary: #e2e4ea;
+    --text-muted: #8b95a9;
+    --text-faint: #5a6580;
+    --text-row-num: #4a5270;
+
+    --accent-from: #6c63ff;
+    --accent-to: #8b5cf6;
+    --accent-glow: rgba(108, 99, 255, 0.35);
+    --accent-ring: rgba(108, 99, 255, 0.15);
+
+    --violet-text: #a78bfa;
+    --violet-bg: rgba(167, 139, 250, 0.08);
+
+    --green-text: #6ee7b7;
+    --red-border: rgba(239, 68, 68, 0.25);
+    --red-bg: rgba(239, 68, 68, 0.10);
+    --red-text: #f87171;
+    --amber-border: rgba(245, 158, 11, 0.20);
+    --amber-bg: rgba(245, 158, 11, 0.08);
+    --amber-text: #fbbf24;
+}
+
+/* ── Light theme ── */
+.light {
+    --bg-app: #f4f5f9;
+    --bg-surface: #ffffff;
+    --bg-surface2: #f0f1f8;
+    --bg-surface3: #eaebf4;
+    --bg-hover: #e8eaf5;
+    --border: #d4d7e8;
+    --border-subtle: #dde0ee;
+
+    --text-primary: #1a1d2e;
+    --text-muted: #5a6080;
+    --text-faint: #8892b0;
+    --text-row-num: #9ba4bc;
+
+    --accent-from: #6c63ff;
+    --accent-to: #7c3aed;
+    --accent-glow: rgba(108, 99, 255, 0.25);
+    --accent-ring: rgba(108, 99, 255, 0.12);
+
+    --violet-text: #7c3aed;
+    --violet-bg: rgba(124, 58, 237, 0.08);
+
+    --green-text: #059669;
+    --red-border: rgba(220, 38, 38, 0.20);
+    --red-bg: rgba(220, 38, 38, 0.07);
+    --red-text: #dc2626;
+    --amber-border: rgba(217, 119, 6, 0.20);
+    --amber-bg: rgba(217, 119, 6, 0.07);
+    --amber-text: #d97706;
+}
+
+body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background-color: var(--bg-app);
+    color: var(--text-primary);
+    min-height: 100vh;
+}
+
+.font-jetbrains {
+    font-family: 'JetBrains Mono', monospace;
+}
+
+*,
+*::before,
+*::after {
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.15s ease;
+}
