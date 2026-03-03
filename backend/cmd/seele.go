@@ -108,9 +108,42 @@ func (server *Server) HandleKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keys := server.store.Keys()
+	allKeys := server.store.Keys()
+	total := len(allKeys)
+
+	offset := 0
+	limit := 20
+	if v := r.URL.Query().Get("offset"); v != "" {
+		fmt.Sscanf(v, "%d", &offset)
+	}
+	if v := r.URL.Query().Get("limit"); v != "" {
+		fmt.Sscanf(v, "%d", &limit)
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > 500 {
+		limit = 500
+	}
+
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+	pageKeys := []string{}
+	if offset < total {
+		pageKeys = allKeys[offset:end]
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(keys); err != nil {
+	type keysResponse struct {
+		Keys  []string `json:"keys"`
+		Total int      `json:"total"`
+	}
+	if err := json.NewEncoder(w).Encode(keysResponse{Keys: pageKeys, Total: total}); err != nil {
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 	}
 }
@@ -246,7 +279,7 @@ func StartServer(port string, dataDir string, joinAddr string) error {
 
 	httpServer := &http.Server{
 		Addr:    ":" + port,
-		Handler: mux,
+		Handler: service.WithCORS(mux),
 	}
 
 	go func() {

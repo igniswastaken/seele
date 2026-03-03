@@ -13,15 +13,16 @@ const (
 	TokenTo     TokenType = "TO"
 	TokenPrefix TokenType = "PREFIX"
 
-	TokenIdent   TokenType = "IDENT"
-	TokenString  TokenType = "STRING"
-	TokenNumber  TokenType = "NUMBER"
-	TokenLParen  TokenType = "("
-	TokenRParen  TokenType = ")"
-	TokenComma   TokenType = ","
-	TokenSemi    TokenType = ";"
-	TokenEOF     TokenType = "EOF"
-	TokenIllegal TokenType = "ILLEGAL"
+	TokenIdent    TokenType = "IDENT"
+	TokenString   TokenType = "STRING"
+	TokenNumber   TokenType = "NUMBER"
+	TokenLParen   TokenType = "("
+	TokenRParen   TokenType = ")"
+	TokenComma    TokenType = ","
+	TokenSemi     TokenType = ";"
+	TokenAsterisk TokenType = "*"
+	TokenEOF      TokenType = "EOF"
+	TokenIllegal  TokenType = "ILLEGAL"
 )
 
 type Token struct {

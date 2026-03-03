@@ -72,6 +72,10 @@ func (p *Parser) parseRevealStatement() *RevealStatement {
 		if p.curToken.Type == TokenRParen {
 			p.nextToken()
 		}
+	} else if p.curToken.Type == TokenAsterisk {
+		stmt.IsPrefix = true
+		stmt.Prefix = ""
+		p.nextToken()
 	} else {
 		if p.curToken.Type == TokenString || p.curToken.Type == TokenIdent {
 			stmt.Keys = append(stmt.Keys, p.curToken.Literal)

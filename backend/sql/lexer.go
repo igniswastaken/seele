@@ -41,6 +41,8 @@ func (l *Lexer) NextToken() Token {
 		token = Token{Type: TokenRParen, Literal: string(l.ch)}
 	case ',':
 		token = Token{Type: TokenComma, Literal: string(l.ch)}
+	case '*':
+		token = Token{Type: TokenAsterisk, Literal: string(l.ch)}
 	case '\'':
 		token.Type = TokenString
 		token.Literal = l.readString()

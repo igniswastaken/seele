@@ -78,7 +78,7 @@ func (p *Proxy) Rebalance() {
 }
 
 func (p *Proxy) fetchKeysFromShard(shard string) ([]string, error) {
-	url := fmt.Sprintf("http://%s/keys", shard)
+	url := fmt.Sprintf("http://%s/keys?limit=500", shard)
 	res, err := p.client.Get(url)
 	if err != nil {
 		return nil, err
@@ -89,11 +89,13 @@ func (p *Proxy) fetchKeysFromShard(shard string) ([]string, error) {
 		return nil, fmt.Errorf("status %d", res.StatusCode)
 	}
 
-	var keys []string
-	if err := json.NewDecoder(res.Body).Decode(&keys); err != nil {
+	var parsed struct {
+		Keys []string `json:"keys"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&parsed); err != nil {
 		return nil, err
 	}
-	return keys, nil
+	return parsed.Keys, nil
 }
 
 func (p *Proxy) fetchValue(shard, key string) (string, error) {
@@ -164,6 +166,151 @@ func (p *Proxy) compactShard(shard string) error {
 		return fmt.Errorf("status %d", res.StatusCode)
 	}
 	return nil
+}
+
+func (p *Proxy) HandleKeys(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	seen := make(map[string]struct{})
+	var allKeys []string
+	for _, shard := range p.shards {
+		keys, err := p.fetchKeysFromShard(shard)
+		if err != nil {
+			continue
+		}
+		for _, k := range keys {
+			if _, ok := seen[k]; !ok {
+				seen[k] = struct{}{}
+				allKeys = append(allKeys, k)
+			}
+		}
+	}
+	if allKeys == nil {
+		allKeys = []string{}
+	}
+
+	total := len(allKeys)
+
+	offset := 0
+	limit := 20
+	if v := r.URL.Query().Get("offset"); v != "" {
+		fmt.Sscanf(v, "%d", &offset)
+	}
+	if v := r.URL.Query().Get("limit"); v != "" {
+		fmt.Sscanf(v, "%d", &limit)
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > 500 {
+		limit = 500
+	}
+
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+	pageKeys := allKeys
+	if offset < total {
+		pageKeys = allKeys[offset:end]
+	} else {
+		pageKeys = []string{}
+	}
+
+	type keysResponse struct {
+		Keys  []string `json:"keys"`
+		Total int      `json:"total"`
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(keysResponse{Keys: pageKeys, Total: total})
+}
+
+func (p *Proxy) HandleQuery(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil || len(body) == 0 {
+		http.Error(w, "Empty query", http.StatusBadRequest)
+		return
+	}
+
+	type queryResp struct {
+		Success bool        `json:"success"`
+		Result  interface{} `json:"result"`
+		Error   string      `json:"error,omitempty"`
+	}
+
+	var merged []interface{}
+	var firstString string
+	var lastErr string
+	var hardErr string
+	anySucess := false
+
+	for _, shard := range p.shards {
+		url := fmt.Sprintf("http://%s/query", shard)
+		resp, err := p.client.Post(url, "text/plain", bytes.NewReader(body))
+		if err != nil {
+			lastErr = err.Error()
+			continue
+		}
+		var qr queryResp
+		if jsonErr := json.NewDecoder(resp.Body).Decode(&qr); jsonErr != nil {
+			resp.Body.Close()
+			continue
+		}
+		resp.Body.Close()
+
+		if !qr.Success {
+			lastErr = qr.Error
+			if strings.Contains(qr.Error, "already exists") {
+				hardErr = qr.Error
+			}
+			continue
+		}
+		anySucess = true
+		switch v := qr.Result.(type) {
+		case []interface{}:
+			merged = append(merged, v...)
+		case string:
+			if firstString == "" {
+				firstString = v
+			}
+		default:
+			if firstString == "" {
+				marshal, _ := json.Marshal(v)
+				firstString = string(marshal)
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if hardErr != "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": hardErr})
+		return
+	}
+	if !anySucess {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": lastErr})
+		return
+	}
+
+	var finalResult interface{}
+	if merged != nil {
+		finalResult = merged
+	} else {
+		finalResult = firstString
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "result": finalResult})
 }
 
 func (p *Proxy) HandleRequest(w http.ResponseWriter, r *http.Request) {
@@ -313,12 +460,14 @@ func StartProxy(port string, joinAddr string) error {
 	}()
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", proxy.HandleRequest)
+	mux.HandleFunc("/keys", proxy.HandleKeys)
+	mux.HandleFunc("/query", proxy.HandleQuery)
 	mux.HandleFunc("/rebalance", proxy.HandleRebalance)
 	mux.HandleFunc("/members", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(p2p.Members())
 	})
+	mux.HandleFunc("/", proxy.HandleRequest)
 
 	fmt.Printf("Proxy started on :%s (Dynamic P2P)\n", port)
-	return http.ListenAndServe(":"+port, mux)
+	return http.ListenAndServe(":"+port, WithCORS(mux))
 }
