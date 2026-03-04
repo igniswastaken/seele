@@ -34,10 +34,7 @@ func NewBloomFilter(n int, falsePositiveRate float64) *BloomFilter {
 
 func (bf *BloomFilter) Add(key string) {
 	for i := 0; i < bf.K; i++ {
-		position := bf.hash(key, i) % bf.M
-		if position < 0 {
-			position = -position
-		}
+		position := bf.hash(key, i)
 		bf.Bitset[position] = true
 	}
 	bf.Size++
@@ -45,10 +42,7 @@ func (bf *BloomFilter) Add(key string) {
 
 func (bf *BloomFilter) Check(key string) bool {
 	for i := 0; i < bf.K; i++ {
-		position := bf.hash(key, i) % bf.M
-		if position < 0 {
-			position = -position
-		}
+		position := bf.hash(key, i)
 		if !bf.Bitset[position] {
 			return false
 		}
@@ -57,10 +51,15 @@ func (bf *BloomFilter) Check(key string) bool {
 }
 
 func (bf *BloomFilter) hash(key string, i int) int {
-	h := fnv.New32a()
+	h := fnv.New64a()
 	h.Write([]byte(key))
-	h.Write([]byte{byte(i)})
-	return int(h.Sum32())
+	sum := h.Sum64()
+	h1 := uint32(sum)
+	h2 := uint32(sum >> 32)
+	if h2 == 0 {
+		h2 = 1
+	}
+	return int((h1 + uint32(i)*h2) % uint32(bf.M))
 }
 
 func SaveBloomFilter(filename string, bf *BloomFilter) error {

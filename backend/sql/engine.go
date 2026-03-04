@@ -99,12 +99,12 @@ func (e *Engine) executeBanish(stmt *BanishStatement) (interface{}, error) {
 func (e *Engine) executePlant(stmt *PlantStatement) (interface{}, error) {
 	count := 0
 	for _, pair := range stmt.Pairs {
-		if _, exists := e.store.Get(pair.Key); exists {
-			return nil, fmt.Errorf("key '%s' already exists — use MORPH to update it", pair.Key)
-		}
-		err := e.store.Set(pair.Key, pair.Value)
+		set, err := e.store.SetIfNotExists(pair.Key, pair.Value)
 		if err != nil {
 			return nil, fmt.Errorf("failed to plant %s: %v", pair.Key, err)
+		}
+		if !set {
+			return nil, fmt.Errorf("key '%s' already exists — use MORPH to update it", pair.Key)
 		}
 		count++
 	}
@@ -114,13 +114,12 @@ func (e *Engine) executePlant(stmt *PlantStatement) (interface{}, error) {
 func (e *Engine) executeMorph(stmt *MorphStatement) (interface{}, error) {
 	count := 0
 	for _, pair := range stmt.Pairs {
-		_, found := e.store.Get(pair.Key)
-		if !found {
-			return nil, fmt.Errorf("cannot morph key %s: not found", pair.Key)
-		}
-		err := e.store.Set(pair.Key, pair.Value)
+		set, err := e.store.SetIfExists(pair.Key, pair.Value)
 		if err != nil {
 			return nil, err
+		}
+		if !set {
+			return nil, fmt.Errorf("cannot morph key %s: not found", pair.Key)
 		}
 		count++
 	}

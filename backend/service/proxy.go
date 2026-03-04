@@ -43,7 +43,7 @@ func (p *Proxy) GetShard(key string) string {
 
 func (p *Proxy) Rebalance() {
 	for _, shard := range p.shards {
-		keys, err := p.fetchKeysFromShard(shard)
+		keys, err := p.fetchAllKeysFromShard(shard)
 		if err != nil {
 			fmt.Printf("Failed to fetch keys from %s: %v\n", shard, err)
 			continue
@@ -77,25 +77,37 @@ func (p *Proxy) Rebalance() {
 	}
 }
 
-func (p *Proxy) fetchKeysFromShard(shard string) ([]string, error) {
-	url := fmt.Sprintf("http://%s/keys?limit=500", shard)
-	res, err := p.client.Get(url)
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
+func (p *Proxy) fetchAllKeysFromShard(shard string) ([]string, error) {
+	const pageSize = 500
+	var allKeys []string
+	offset := 0
 
-	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("status %d", res.StatusCode)
-	}
+	for {
+		url := fmt.Sprintf("http://%s/keys?limit=%d&offset=%d", shard, pageSize, offset)
+		res, err := p.client.Get(url)
+		if err != nil {
+			return nil, err
+		}
+		defer res.Body.Close()
 
-	var parsed struct {
-		Keys []string `json:"keys"`
+		if res.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("status %d", res.StatusCode)
+		}
+
+		var parsed struct {
+			Keys []string `json:"keys"`
+		}
+		if err := json.NewDecoder(res.Body).Decode(&parsed); err != nil {
+			return nil, err
+		}
+
+		allKeys = append(allKeys, parsed.Keys...)
+		if len(parsed.Keys) < pageSize {
+			break
+		}
+		offset += pageSize
 	}
-	if err := json.NewDecoder(res.Body).Decode(&parsed); err != nil {
-		return nil, err
-	}
-	return parsed.Keys, nil
+	return allKeys, nil
 }
 
 func (p *Proxy) fetchValue(shard, key string) (string, error) {
@@ -121,9 +133,12 @@ func (p *Proxy) fetchValue(shard, key string) (string, error) {
 
 func (p *Proxy) setValue(shard, key, value string) error {
 	url := fmt.Sprintf("http://%s/set", shard)
-	payload := fmt.Sprintf(`{"key":"%s", "value":"%s"}`, key, value)
+	body, err := json.Marshal(map[string]string{"key": key, "value": value})
+	if err != nil {
+		return err
+	}
 
-	res, err := p.client.Post(url, "application/json", strings.NewReader(payload))
+	res, err := p.client.Post(url, "application/json", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -177,7 +192,7 @@ func (p *Proxy) HandleKeys(w http.ResponseWriter, r *http.Request) {
 	seen := make(map[string]struct{})
 	var allKeys []string
 	for _, shard := range p.shards {
-		keys, err := p.fetchKeysFromShard(shard)
+		keys, err := p.fetchAllKeysFromShard(shard)
 		if err != nil {
 			continue
 		}
@@ -372,26 +387,22 @@ func (p *Proxy) HandleWrite(w http.ResponseWriter, r *http.Request, shardUrls []
 			req.Header[k] = v
 		}
 		res, err := p.client.Do(req)
-		if err == nil && res.StatusCode == http.StatusOK {
-			successCount++
-		} else {
-			if res != nil {
-				res.Body.Close()
-			}
-		}
-
 		if res != nil {
 			io.Copy(io.Discard, res.Body)
 			res.Body.Close()
 		}
+		if err == nil && res.StatusCode == http.StatusOK {
+			successCount++
+		}
 	}
 
-	if successCount == len(shardUrls) && len(shardUrls) > 0 {
+	quorum := (len(shardUrls) / 2) + 1
+	if successCount >= quorum && len(shardUrls) > 0 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"success":true}`))
 	} else {
-		http.Error(w, fmt.Sprintf("Failed to meet Write Quorum: %d/%d succeeded", successCount, len(shardUrls)), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Failed to meet Write Quorum: %d/%d succeeded (need %d)", successCount, len(shardUrls), quorum), http.StatusInternalServerError)
 	}
 }
 

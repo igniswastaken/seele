@@ -231,12 +231,31 @@ func writeIndex(f *os.File, index []IndexEntry) error {
 }
 
 func (t *SSTable) Keys() ([]string, error) {
-	if _, err := t.file.Seek(0, 0); err != nil {
+	stat, err := t.file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	var indexOffset int64
+	if stat.Size() >= 8 {
+		if _, err := t.file.Seek(-8, io.SeekEnd); err != nil {
+			return nil, err
+		}
+		var off uint64
+		if err := binary.Read(t.file, binary.LittleEndian, &off); err != nil {
+			return nil, err
+		}
+		indexOffset = int64(off)
+	} else {
+		indexOffset = stat.Size()
+	}
+
+	if _, err := t.file.Seek(0, io.SeekStart); err != nil {
 		return nil, err
 	}
 
 	var keys []string
-	for {
+	var currentOffset int64
+	for currentOffset < indexOffset {
 		var keyLen uint32
 		err := binary.Read(t.file, binary.LittleEndian, &keyLen)
 		if err == io.EOF {
@@ -245,23 +264,86 @@ func (t *SSTable) Keys() ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
+		currentOffset += 4
 
 		keyBytes := make([]byte, keyLen)
 		if _, err := io.ReadFull(t.file, keyBytes); err != nil {
 			return nil, err
 		}
+		currentOffset += int64(keyLen)
 		keys = append(keys, string(keyBytes))
 
 		var valLen uint32
 		if err := binary.Read(t.file, binary.LittleEndian, &valLen); err != nil {
 			return nil, err
 		}
+		currentOffset += 4
 
 		if _, err := t.file.Seek(int64(valLen), io.SeekCurrent); err != nil {
 			return nil, err
 		}
+		currentOffset += int64(valLen)
 	}
 	return keys, nil
+}
+
+func (t *SSTable) Entries() ([]Entry, error) {
+	stat, err := t.file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	var indexOffset int64
+	if stat.Size() >= 8 {
+		if _, err := t.file.Seek(-8, io.SeekEnd); err != nil {
+			return nil, err
+		}
+		var off uint64
+		if err := binary.Read(t.file, binary.LittleEndian, &off); err != nil {
+			return nil, err
+		}
+		indexOffset = int64(off)
+	} else {
+		indexOffset = stat.Size()
+	}
+
+	if _, err := t.file.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
+
+	var entries []Entry
+	var currentOffset int64
+	for currentOffset < indexOffset {
+		var keyLen uint32
+		err := binary.Read(t.file, binary.LittleEndian, &keyLen)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		currentOffset += 4
+
+		keyBytes := make([]byte, keyLen)
+		if _, err := io.ReadFull(t.file, keyBytes); err != nil {
+			return nil, err
+		}
+		currentOffset += int64(keyLen)
+
+		var valLen uint32
+		if err := binary.Read(t.file, binary.LittleEndian, &valLen); err != nil {
+			return nil, err
+		}
+		currentOffset += 4
+
+		valBytes := make([]byte, valLen)
+		if _, err := io.ReadFull(t.file, valBytes); err != nil {
+			return nil, err
+		}
+		currentOffset += int64(valLen)
+
+		entries = append(entries, Entry{Key: string(keyBytes), Value: string(valBytes)})
+	}
+	return entries, nil
 }
 
 func (it *SSTableIterator) Next() *Entry {

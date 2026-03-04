@@ -45,8 +45,8 @@ func (h *mergeHeap) Pop() any {
 }
 
 func (l *LSMTree) Compact() error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	l.ssTableMu.Lock()
+	defer l.ssTableMu.Unlock()
 
 	if len(l.ssTable) < 2 {
 		fmt.Println("Compaction: Nothing to compact (< 2 SSTables)")

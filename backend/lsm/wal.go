@@ -3,6 +3,7 @@ package lsm
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"sync"
@@ -105,7 +106,9 @@ func (w *WAL) Recover(memTable *MemTable) error {
 		fmt.Printf("WAL Recovery: Replayed %d operations\n", count)
 	}
 
-	w.file.Seek(0, 2)
+	if _, err := w.file.Seek(0, io.SeekEnd); err != nil {
+		return err
+	}
 	return scanner.Err()
 }
 

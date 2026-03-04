@@ -12,6 +12,7 @@ type Store struct {
 	merkle     *MerkleTree
 	merkleLock sync.RWMutex
 	isDirty    bool
+	cas        sync.Mutex
 }
 
 const tombstone = "__deleted__"
@@ -48,6 +49,34 @@ func (s *Store) Delete(key string) error {
 		s.markDirty()
 	}
 	return err
+}
+
+func (s *Store) SetIfNotExists(key, value string) (bool, error) {
+	s.cas.Lock()
+	defer s.cas.Unlock()
+
+	if _, exists := s.engine.Get(key); exists {
+		return false, nil
+	}
+	err := s.engine.Put(key, value)
+	if err == nil {
+		s.markDirty()
+	}
+	return err == nil, err
+}
+
+func (s *Store) SetIfExists(key, value string) (bool, error) {
+	s.cas.Lock()
+	defer s.cas.Unlock()
+
+	if _, exists := s.engine.Get(key); !exists {
+		return false, nil
+	}
+	err := s.engine.Put(key, value)
+	if err == nil {
+		s.markDirty()
+	}
+	return err == nil, err
 }
 
 func (s *Store) Keys() []string {

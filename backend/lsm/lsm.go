@@ -76,9 +76,9 @@ func (l *LSMTree) flushWorker() {
 
 func (l *LSMTree) Put(key, value string) error {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 
 	if err := l.wal.Write("PUT", key, value); err != nil {
+		l.mu.Unlock()
 		return err
 	}
 
@@ -88,15 +88,12 @@ func (l *LSMTree) Put(key, value string) error {
 		oldTable := l.memTable
 		l.memTable = NewMemTable()
 		l.wal.Reset()
-
 		l.mu.Unlock()
-		select {
-		case l.flushCh <- oldTable:
-		default:
-			l.flushCh <- oldTable
-		}
-		l.mu.Lock()
+		go func() { l.flushCh <- oldTable }()
+		return nil
 	}
+
+	l.mu.Unlock()
 	return nil
 }
 
@@ -199,16 +196,16 @@ func (l *LSMTree) Keys() []string {
 	defer l.ssTableMu.RUnlock()
 
 	for _, table := range l.ssTable {
-		k, _ := table.Keys()
-		for _, key := range k {
-			if _, seen := keyMap[key]; !seen {
-				val, found := table.Get(key)
-				if found {
-					if val == "__deleted__" {
-						keyMap[key] = false
-					} else {
-						keyMap[key] = true
-					}
+		entries, err := table.Entries()
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if _, seen := keyMap[entry.Key]; !seen {
+				if entry.Value == "__deleted__" {
+					keyMap[entry.Key] = false
+				} else {
+					keyMap[entry.Key] = true
 				}
 			}
 		}
