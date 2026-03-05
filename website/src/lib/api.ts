@@ -17,18 +17,27 @@ export async function fetchPage(page: number, pageSize: number = PAGE_SIZE): Pro
     if (!res.ok) throw new Error(`Failed to fetch keys: ${res.status}`);
     const data: { keys: string[]; total: number } = await res.json();
 
-    const pairs = await Promise.all(
-        data.keys.map(async (key) => {
-            try {
-                const valRes = await fetch(`${API}/get?key=${encodeURIComponent(key)}`);
-                if (!valRes.ok) return { key, value: '' };
-                const val = await valRes.json();
-                return { key, value: val.value ?? '' };
-            } catch {
-                return { key, value: '' };
-            }
-        })
-    );
+    if (data.keys.length === 0) return { pairs: [], total: data.total };
+
+    const keysList = data.keys.map(k => `"${k.replace(/"/g, '\\"')}"`).join(', ');
+    const query = `REVEAL (${keysList})`;
+    const kvRes = await runQuery(query);
+
+    let pairs: KVPair[] = [];
+    if (kvRes.result && Array.isArray(kvRes.result)) {
+        pairs = kvRes.result.map((row: any) => ({
+            key: row.key,
+            value: row.found !== false ? (row.value ?? '') : ''
+        }));
+    } else if (kvRes.result && typeof kvRes.result === 'object') {
+        const row: any = kvRes.result;
+        pairs = [{
+            key: row.key,
+            value: row.found !== false ? (row.value ?? '') : ''
+        }];
+    } else {
+        pairs = data.keys.map(key => ({ key, value: '' }));
+    }
 
     return { pairs, total: data.total };
 }

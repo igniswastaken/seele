@@ -44,7 +44,20 @@
 					onMutated?.();
 				}
 				if (Array.isArray(res.result)) {
-					streamRows = res.result;
+					const dedupMap = new Map<string, any>();
+					const nonKeyedRows = [];
+					let hasKeys = false;
+
+					for (const row of res.result) {
+						if (row && typeof row === 'object' && 'key' in row) {
+							dedupMap.set(row.key, row);
+							hasKeys = true;
+						} else {
+							nonKeyedRows.push(row);
+						}
+					}
+
+					streamRows = hasKeys ? Array.from(dedupMap.values()).concat(nonKeyedRows) : res.result;
 					streamShown = Math.min(REVEAL_INITIAL, streamRows.length);
 				} else if (res.result !== null && typeof res.result === 'object') {
 					singleResult = res.result as Record<string, unknown>;

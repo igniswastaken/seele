@@ -17,14 +17,18 @@
 
 	let totalPages = $derived(Math.max(1, Math.ceil(total / PAGE_SIZE)));
 
+	let uniquePairs = $derived(
+		Array.from(pairs.reduce((map, p) => map.set(p.key, p), new Map<string, KVPair>()).values())
+	);
+
 	let visiblePairs = $derived(
 		searchQuery.trim()
-			? pairs.filter(
+			? uniquePairs.filter(
 					(p) =>
 						p.key.toLowerCase().includes(searchQuery.toLowerCase()) ||
 						p.value.toLowerCase().includes(searchQuery.toLowerCase())
 				)
-			: pairs
+			: uniquePairs
 	);
 
 	async function loadPage(page: number) {

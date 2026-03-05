@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -14,6 +15,11 @@ type Proxy struct {
 	shards []string
 	ring   *HashRing
 	client *http.Client
+
+	keysMu    sync.RWMutex
+	cachedKey []string
+
+	shardsMu sync.RWMutex
 }
 
 func NewProxy(shards []string) *Proxy {
@@ -23,7 +29,7 @@ func NewProxy(shards []string) *Proxy {
 		ring.AddNode(shard)
 	}
 
-	return &Proxy{
+	proxy := &Proxy{
 		shards: shards,
 		ring:   ring,
 		client: &http.Client{
@@ -34,6 +40,45 @@ func NewProxy(shards []string) *Proxy {
 			},
 			Timeout: 10 * time.Second,
 		},
+	}
+
+	go proxy.refreshKeysWorker()
+
+	return proxy
+}
+
+func (p *Proxy) refreshKeysWorker() {
+	for {
+		seen := make(map[string]struct{})
+		var allKeys []string
+
+		p.shardsMu.RLock()
+		currentShards := make([]string, len(p.shards))
+		copy(currentShards, p.shards)
+		p.shardsMu.RUnlock()
+
+		for _, shard := range currentShards {
+			keys, err := p.fetchAllKeysFromShard(shard)
+			if err != nil {
+				fmt.Printf("Worker failed to fetch keys from shard %s: %v\n", shard, err)
+				continue
+			}
+			for _, k := range keys {
+				if _, ok := seen[k]; !ok {
+					seen[k] = struct{}{}
+					allKeys = append(allKeys, k)
+				}
+			}
+		}
+		if allKeys == nil {
+			allKeys = []string{}
+		}
+
+		p.keysMu.Lock()
+		p.cachedKey = allKeys
+		p.keysMu.Unlock()
+
+		time.Sleep(3 * time.Second)
 	}
 }
 
@@ -189,20 +234,10 @@ func (p *Proxy) HandleKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	seen := make(map[string]struct{})
-	var allKeys []string
-	for _, shard := range p.shards {
-		keys, err := p.fetchAllKeysFromShard(shard)
-		if err != nil {
-			continue
-		}
-		for _, k := range keys {
-			if _, ok := seen[k]; !ok {
-				seen[k] = struct{}{}
-				allKeys = append(allKeys, k)
-			}
-		}
-	}
+	p.keysMu.RLock()
+	allKeys := p.cachedKey
+	p.keysMu.RUnlock()
+
 	if allKeys == nil {
 		allKeys = []string{}
 	}
@@ -463,7 +498,9 @@ func StartProxy(port string, joinAddr string) error {
 
 			if len(activeShards) > 0 {
 				proxy.ring.SetNodes(activeShards)
+				proxy.shardsMu.Lock()
 				proxy.shards = activeShards
+				proxy.shardsMu.Unlock()
 			} else {
 				fmt.Printf("Proxy Debug: 0 active shards! P2P Members: %v\n", members)
 			}
